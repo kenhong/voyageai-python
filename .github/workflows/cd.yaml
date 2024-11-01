@@ -1,0 +1,67 @@
+name: Release and Publish
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  verify-version:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Extract Tag Version
+        id: extract_tag
+        run: echo "TAG_VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
+
+      - name: Extract pyproject.toml Version
+        id: extract_pyproject
+        run: |
+          VERSION=$(grep '^version =' pyproject.toml | sed 's/version = "//;s/"//')
+          echo "PYPROJECT_VERSION=$VERSION" >> $GITHUB_ENV
+
+      - name: Compare Versions
+        run: |
+          if [ "$TAG_VERSION" != "v$PYPROJECT_VERSION" ]; then
+            echo "Version mismatch: Tag is $TAG_VERSION but pyproject.toml is $PYPROJECT_VERSION"
+            exit 1
+          else
+            echo "Version verified: $TAG_VERSION matches pyproject.toml"
+          fi
+  tests:
+    name: Tests
+    uses: ./.github/workflows/ci.yaml
+  security:
+    name: Security Analysis
+    uses: ./.github/workflows/security.yaml
+  publish:
+    runs-on: ubuntu-22.04
+    needs: [verify-version, tests, security]  # Ensures version verification passes
+    env:
+      POETRY_HOME: "/opt/poetry"
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+      - name: Install poetry
+        run: |
+          python3 -m venv $POETRY_HOME
+          $POETRY_HOME/bin/pip install poetry==1.8.4
+          $POETRY_HOME/bin/poetry --version
+      - name: Configure Poetry for TestPyPI
+        run: |
+          poetry config repositories.testpypi https://test.pypi.org/legacy/
+        env:
+          POETRY_PYPI_TOKEN_TESTPYPI: ${{ secrets.TEST_PYPI_API_KEY }}
+      - name: Publish to TestPyPI
+        env:
+          POETRY_PYPI_TOKEN_PYPI: ${{ secrets.PYPI_API_KEY }}
+          POETRY_REPOSITORIES_TESTPYPI_URL: https://test.pypi.org/legacy/
+          POETRY_PYPI_TOKEN_TESTPYPI: ${{ secrets.TEST_PYPI_API_KEY }}
+        run: |
+          poetry publish --build --repository testpypi

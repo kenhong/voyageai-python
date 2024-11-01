@@ -1,5 +1,5 @@
 [tool.poetry]
-name = "voyageai"
+name = "voyageai-test"
 version = "0.3.0rc0"
 description = ""
 authors = ["Yujie Qian <yujieq@voyageai.com>"]
