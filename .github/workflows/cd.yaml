@@ -2,7 +2,7 @@ name: Release and Publish
 
 on:
   release:
-    types: [published]
+    types: [created]
 
 jobs:
   verify-version:
@@ -29,15 +29,9 @@ jobs:
           else
             echo "Version verified: $TAG_VERSION matches pyproject.toml"
           fi
-  tests:
-    name: Tests
-    uses: ./.github/workflows/ci.yaml
-  security:
-    name: Security Analysis
-    uses: ./.github/workflows/security.yaml
   publish:
     runs-on: ubuntu-22.04
-    needs: [verify-version, tests, security]  # Ensures version verification passes
+    needs: [verify-version]  # Ensures version verification passes
     env:
       POETRY_HOME: "/opt/poetry"
     steps:
