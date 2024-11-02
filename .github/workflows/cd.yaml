@@ -49,7 +49,7 @@ jobs:
           $POETRY_HOME/bin/poetry --version
       - name: Configure Poetry for TestPyPI
         run: |
-          poetry config repositories.testpypi https://test.pypi.org/legacy/
+          $POETRY_HOME/bin/poetry config repositories.testpypi https://test.pypi.org/legacy/
         env:
           POETRY_PYPI_TOKEN_TESTPYPI: ${{ secrets.TEST_PYPI_API_KEY }}
       - name: Publish to TestPyPI
@@ -58,4 +58,4 @@ jobs:
           POETRY_REPOSITORIES_TESTPYPI_URL: https://test.pypi.org/legacy/
           POETRY_PYPI_TOKEN_TESTPYPI: ${{ secrets.TEST_PYPI_API_KEY }}
         run: |
-          poetry publish --build --repository testpypi
+          $POETRY_HOME/bin/poetry publish --build --repository testpypi
