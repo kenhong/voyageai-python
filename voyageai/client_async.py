@@ -17,6 +17,7 @@ from voyageai.object.multimodal_embeddings import MultimodalInputRequest
 from voyageai.object import (
     ContextualizedEmbeddingsObject, EmbeddingsObject, RerankingObject, MultimodalEmbeddingsObject
 )
+from voyageai.video_utils import Video
 
 class AsyncClient(_BaseClient):
     """Voyage AI Async Client
@@ -146,20 +147,13 @@ class AsyncClient(_BaseClient):
 
     async def multimodal_embed(
         self,
-        inputs: Union[List[Dict], List[List[Union[str, Image]]]],
+        inputs: Union[List[Dict], List[List[Union[str, Image, Video]]]],
         model: str,
         input_type: Optional[str] = None,
         truncation: bool = True,
+        output_dtype: Optional[str] = None,
+        output_dimension: Optional[int] = None,
     ) -> MultimodalEmbeddingsObject:
-        """
-        Generate multimodal embeddings asynchronously for the provided inputs using the specified model.
-
-        :param inputs: Either a list of dictionaries (each with 'content') or a list of lists containing strings and/or PIL images.
-        :param model: The model identifier.
-        :param input_type: Optional input type.
-        :param truncation: Whether to apply truncation.
-        :return: An instance of MultimodalEmbeddingsObject.
-        """
 
         response = None
         async for attempt in self.retry_controller:
@@ -170,6 +164,8 @@ class AsyncClient(_BaseClient):
                         model=model,
                         input_type=input_type,
                         truncation=truncation,
+                        output_dtype=output_dtype,
+                        output_dimension=output_dimension,
                     ).dict(),
                     **self._params,
                 )

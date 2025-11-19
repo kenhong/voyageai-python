@@ -1,4 +1,5 @@
 import asyncio
+import base64
 from inspect import iscoroutinefunction
 from typing import List
 
@@ -8,6 +9,7 @@ from PIL import Image
 import voyageai
 import voyageai.error as error
 import math
+from voyageai.video_utils import Video
 
 
 def cosine_similarity(a: List[float], b: List[float]) -> float:
@@ -120,6 +122,24 @@ sample_input_list_mixed_01 = [
     Image.new("L", (400, 400), color=128),
 ]
 
+sample_input_dict_video_url_01 = {
+    "content": [
+        {
+            "type": "video_url",
+            "video_url": "https://www.voyageai.com/example.mp4",
+        },
+    ],
+}
+
+sample_input_dict_video_url_01 = {
+    "content": [
+        {
+            "type": "video_url",
+            "video_url": "https://www.voyageai.com/example.mp4",
+        },
+    ],
+}
+
 sample_input_invalid_text_01 = {
     "content": [
         {"type": "text", "wrong_key": "this is an image of a blue sailboat on a lake."},
@@ -135,6 +155,7 @@ class TestClient:
             ([sample_input_dict_text_01]),
             ([sample_input_dict_url_01]),
             ([sample_input_dict_b64_01]),
+            ([sample_input_dict_video_url_01]),
             ([sample_input_list_text_01]),
             ([sample_input_list_img_01]),
             ([sample_input_list_img_02]),
@@ -273,6 +294,151 @@ class TestClient:
             embed_with_client(
                 client, inputs=[], model=multimodal_model, truncation="test"
             )
+
+    def test_client_multimodal_embed_dict_video_payload(
+        self, client, multimodal_model, monkeypatch
+    ):
+        captured = {}
+
+        class DummyUsage:
+            def __init__(self):
+                self.text_tokens = 0
+                self.image_pixels = 0
+                self.total_tokens = 0
+
+        class DummyDataItem:
+            def __init__(self):
+                self.embedding = [0.0]
+
+        class DummyResponse:
+            def __init__(self):
+                self.data = [DummyDataItem()]
+                self.usage = DummyUsage()
+
+        def fake_create(**kwargs):
+            captured["kwargs"] = kwargs
+            return DummyResponse()
+
+        async def fake_acreate(**kwargs):
+            captured["kwargs"] = kwargs
+            return DummyResponse()
+
+        monkeypatch.setattr(
+            "voyageai.MultimodalEmbedding.create",
+            fake_create,
+        )
+        monkeypatch.setattr(
+            "voyageai.MultimodalEmbedding.acreate",
+            fake_acreate,
+        )
+
+        output_dtype = "float16"
+        output_dimension = 128
+
+        result = embed_with_client(
+            client,
+            inputs=[sample_input_dict_video_url_01],
+            model=multimodal_model,
+            output_dtype=output_dtype,
+            output_dimension=output_dimension,
+        )
+
+        assert len(result.embeddings) == 1
+        assert len(result.embeddings[0]) == 1
+
+        kwargs = captured["kwargs"]
+        assert kwargs["model"] == multimodal_model
+        assert kwargs["output_dtype"] == output_dtype
+        assert kwargs["output_dimension"] == output_dimension
+        assert kwargs["truncation"] is True
+
+        assert "inputs" in kwargs
+        assert isinstance(kwargs["inputs"], list)
+        assert len(kwargs["inputs"]) == 1
+        content = kwargs["inputs"][0]["content"]
+        assert len(content) == 1
+        segment = content[0]
+        assert segment["type"] == "video_url"
+        assert segment["video_url"] == sample_input_dict_video_url_01["content"][0]["video_url"]
+
+    def test_client_multimodal_embed_list_with_video_object_payload(
+        self, client, monkeypatch
+    ):
+        video_bytes = b"video-for-list-of-list"
+        video = Video(data=video_bytes, optimized=False)
+
+        captured = {}
+
+        class DummyUsage:
+            def __init__(self):
+                self.text_tokens = 0
+                self.image_pixels = 0
+                self.total_tokens = 0
+
+        class DummyDataItem:
+            def __init__(self):
+                self.embedding = [0.0]
+
+        class DummyResponse:
+            def __init__(self):
+                self.data = [DummyDataItem()]
+                self.usage = DummyUsage()
+
+        def fake_create(**kwargs):
+            captured["kwargs"] = kwargs
+            return DummyResponse()
+
+        async def fake_acreate(**kwargs):
+            captured["kwargs"] = kwargs
+            return DummyResponse()
+
+        monkeypatch.setattr(
+            "voyageai.MultimodalEmbedding.create",
+            fake_create,
+        )
+        monkeypatch.setattr(
+            "voyageai.MultimodalEmbedding.acreate",
+            fake_acreate,
+        )
+
+        model_name = "voyage-multimodal-3-video"
+        output_dtype = "float16"
+        output_dimension = 128
+
+        result = embed_with_client(
+            client,
+            inputs=[["Describe this video", video]],
+            model=model_name,
+            output_dtype=output_dtype,
+            output_dimension=output_dimension,
+        )
+
+        assert len(result.embeddings) == 1
+        assert len(result.embeddings[0]) == 1
+
+        kwargs = captured["kwargs"]
+        assert kwargs["model"] == model_name
+        assert kwargs["output_dtype"] == output_dtype
+        assert kwargs["output_dimension"] == output_dimension
+
+        inputs_payload = kwargs["inputs"]
+        assert isinstance(inputs_payload, list)
+        assert len(inputs_payload) == 1
+        content = inputs_payload[0]["content"]
+        assert len(content) == 2
+
+        text_segment = content[0]
+        video_segment = content[1]
+
+        assert text_segment["type"] == "text"
+        assert text_segment["text"] == "Describe this video"
+
+        assert video_segment["type"] == "video_base64"
+        encoded = video_segment["video_base64"]
+        assert encoded.startswith("data:video/mp4;base64,")
+        b64_data = encoded.split(",", 1)[1]
+        decoded_bytes = base64.b64decode(b64_data.encode("utf-8"))
+        assert decoded_bytes == video_bytes
 
     def test_input_formats_yield_identical_result(self, client, multimodal_model, similarity_threshold):
         input_1 = {
