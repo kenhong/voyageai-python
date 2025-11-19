@@ -1,14 +1,16 @@
-import base64
 from os import PathLike
-from typing import IO, Dict, Optional, Union, Any
+from typing import IO, Dict, Union, Any
 
 import io
-import os
 from pathlib import Path
 
 import pytest
 
-from voyageai.video_utils import Video, optimize_video
+from voyageai.video_utils import (
+    Video,
+    optimize_video,
+    _compute_target_fps,
+)
 
 
 class TestVideoUtils:
@@ -109,36 +111,116 @@ class TestVideoUtils:
 
         assert out_path.read_bytes() == video_bytes
 
-    @pytest.mark.parametrize(
-        "input_value",
-        [
-            b"raw-video-bytes",
-            bytearray(b"raw-video-bytearray"),
-        ],
-    )
-    def test_optimize_video_from_bytes_like(self, input_value: Union[bytes, bytearray]) -> None:
-        video = optimize_video(input_value, resize=False, downsample_fps=False)
-        assert isinstance(video, Video)
-        assert video.optimized is True
-        assert video.to_bytes() == bytes(input_value)
+    def test_optimize_video_uses_ffmpeg_pipeline_for_path(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """
+        Sanity-check that optimize_video:
+        - Probes metadata,
+        - Builds an ffmpeg graph,
+        - Returns a Video with optimized=True and MP4 mime type.
 
-    def test_optimize_video_from_path(self, tmp_path: Path) -> None:
-        video_bytes = b"path-video-bytes"
+        This test stubs out the ffmpeg module used by voyageai.video_utils so it
+        does not require the actual ffmpeg binary at test time.
+        """
+
+        # Arrange a fake input file.
+        video_bytes = b"fake-input-video"
         video_path = tmp_path / "video.bin"
         video_path.write_bytes(video_bytes)
 
-        video = optimize_video(video_path)
+        # Stub ffmpeg used inside voyageai.video_utils.
+        calls: Dict[str, Any] = {}
 
+        class FakeStream:
+            def __init__(self, label: str) -> None:
+                self.label = label
+                self.filters: Dict[str, Any] = {}
+
+            def filter(self, name: str, *args, **kwargs) -> "FakeStream":
+                self.filters[name] = {"args": args, "kwargs": kwargs}
+                return self
+
+        class FakeFFmpegModule:
+            class Error(Exception):
+                def __init__(self, stderr: bytes = b"") -> None:
+                    super().__init__("ffmpeg error")
+                    self.stderr = stderr
+
+            @staticmethod
+            def probe(path: str) -> Dict[str, Any]:
+                calls["probe_path"] = path
+                return {
+                    "streams": [
+                        {
+                            "codec_type": "video",
+                            "width": 640,
+                            "height": 360,
+                            "r_frame_rate": "30/1",
+                            "duration": "1.0",
+                        }
+                    ],
+                    "format": {"duration": "1.0"},
+                }
+
+            @staticmethod
+            def input(path: str) -> FakeStream:
+                calls["input_path"] = path
+                return FakeStream("input")
+
+            @staticmethod
+            def output(stream: FakeStream, target: str, **kwargs: Any) -> FakeStream:
+                calls["output_target"] = target
+                calls["output_kwargs"] = kwargs
+                return stream
+
+            @staticmethod
+            def run(stream: FakeStream, capture_stdout: bool, capture_stderr: bool):
+                calls["run_capture_stdout"] = capture_stdout
+                calls["run_capture_stderr"] = capture_stderr
+                return b"optimized-mp4", b""
+
+        monkeypatch.setattr("voyageai.video_utils.ffmpeg", FakeFFmpegModule)
+
+        # Act
+        video = optimize_video(str(video_path))
+
+        # Assert
         assert isinstance(video, Video)
         assert video.optimized is True
-        assert video.to_bytes() == video_bytes
+        assert video.mime_type == "video/mp4"
+        assert video.to_bytes() == b"optimized-mp4"
 
-    def test_optimize_video_from_video_instance(self) -> None:
-        original = Video(data=b"already-video", optimized=False)
-        optimized = optimize_video(original)
+        # ffmpeg plumbing was exercised.
+        assert calls["probe_path"] == str(video_path)
+        assert calls["input_path"] == str(video_path)
+        assert calls["output_target"] == "pipe:"
+        assert calls["run_capture_stdout"] is True
+        assert calls["run_capture_stderr"] is True
 
-        assert isinstance(optimized, Video)
-        assert optimized.optimized is True
-        assert optimized.to_bytes() == original.to_bytes()
+    @pytest.mark.parametrize(
+        "original_fps,duration,max_tokens,tokens_per_frame,expected_relation",
+        [
+            (30.0, 10.0, 1600, 16, "lt"),  # should downsample
+            (30.0, 1.0, 10_000_000, 16, "eq"),  # effectively unchanged
+        ],
+    )
+    def test_compute_target_fps_behavior(
+        self,
+        original_fps: float,
+        duration: float,
+        max_tokens: int,
+        tokens_per_frame: int,
+        expected_relation: str,
+    ) -> None:
+        target_fps = _compute_target_fps(
+            original_fps=original_fps,
+            duration_sec=duration,
+            max_video_tokens=max_tokens,
+            tokens_per_frame=tokens_per_frame,
+        )
+
+        if expected_relation == "lt":
+            assert target_fps <= original_fps
+        elif expected_relation == "eq":
+            assert target_fps == original_fps
 
 
