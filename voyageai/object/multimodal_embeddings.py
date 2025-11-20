@@ -20,6 +20,7 @@ class MultimodalEmbeddingsObject:
         self.embeddings: List[List[float]] = []
         self.text_tokens: int = 0
         self.image_pixels: int = 0
+        self.video_pixels: int = 0
         self.total_tokens: int = 0
         if response:
             self.update(response)
@@ -29,6 +30,7 @@ class MultimodalEmbeddingsObject:
             self.embeddings.append(d.embedding)
         self.text_tokens += response.usage.text_tokens
         self.image_pixels += response.usage.image_pixels
+        self.video_pixels += response.usage.video_pixels
         self.total_tokens += response.usage.total_tokens
 
 

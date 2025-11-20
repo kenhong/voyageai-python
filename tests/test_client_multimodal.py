@@ -58,7 +58,7 @@ def embed_with_client(client, **kwargs):
 
 @pytest.fixture(scope="function")
 def multimodal_model():
-    return "voyage-multimodal-3"
+    return "voyage-multimodal-3.5"
 
 
 @pytest.fixture(scope="function")
@@ -126,16 +126,7 @@ sample_input_dict_video_url_01 = {
     "content": [
         {
             "type": "video_url",
-            "video_url": "https://www.voyageai.com/example.mp4",
-        },
-    ],
-}
-
-sample_input_dict_video_url_01 = {
-    "content": [
-        {
-            "type": "video_url",
-            "video_url": "https://www.voyageai.com/example.mp4",
+            "video_url": "https://archive.org/download/example_30s_0.25fps_shortgop/example_30s_0.25fps_shortgop.mp4",
         },
     ],
 }
@@ -174,8 +165,9 @@ class TestClient:
         result = embed_with_client(client, inputs=inputs, model=multimodal_model)
         assert len(result.embeddings) == len(inputs)
         assert len(result.embeddings[0]) == embedding_dimension
-        assert result.text_tokens > 0 or result.image_pixels > 0
+        assert result.text_tokens > 0 or result.image_pixels > 0 or result.video_pixels > 0
         assert result.total_tokens > 0
+        import time
 
     @pytest.mark.parametrize(
         "inputs, expected_exception",
@@ -304,6 +296,7 @@ class TestClient:
             def __init__(self):
                 self.text_tokens = 0
                 self.image_pixels = 0
+                self.video_pixels = 0
                 self.total_tokens = 0
 
         class DummyDataItem:
@@ -373,6 +366,7 @@ class TestClient:
             def __init__(self):
                 self.text_tokens = 0
                 self.image_pixels = 0
+                self.video_pixels = 0
                 self.total_tokens = 0
 
         class DummyDataItem:
