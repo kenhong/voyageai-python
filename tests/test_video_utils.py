@@ -6,11 +6,19 @@ from pathlib import Path
 
 import pytest
 
+from voyageai._base import _get_client_config
 from voyageai.video_utils import (
     Video,
     optimize_video,
     _compute_target_fps,
+    _parse_fps,
 )
+
+try:
+    import ffmpeg  # type: ignore[import]
+except ImportError:  # pragma: no cover - handled lazily in functions
+    ffmpeg = None  # type: ignore[assignment]
+
 
 
 class TestVideoUtils:
@@ -19,7 +27,12 @@ class TestVideoUtils:
         video_path = tmp_path / "fake_video.bin"
         video_path.write_bytes(video_bytes)
 
-        video = Video.from_path(video_path, optimize=False, optimizer_kwargs={"ignored": True})
+        video = Video.from_path(
+            video_path,
+            model="voyage-multimodal-3.5",
+            optimize=False,
+            optimizer_kwargs={"ignored": True},
+        )
 
         assert isinstance(video, Video)
         assert video.optimized is False
@@ -35,22 +48,25 @@ class TestVideoUtils:
         def fake_optimize_video(
             video: Union[str, PathLike[str], bytes, Video],
             *,
+            model: str,
             resize: bool = True,
             resize_multiple: int = 28,
             downsample_fps: bool = True,
             max_video_tokens: int = 32000,
         ) -> Video:
             called["video"] = video
+            called["model"] = model
             called["resize"] = resize
             called["resize_multiple"] = resize_multiple
             called["downsample_fps"] = downsample_fps
             called["max_video_tokens"] = max_video_tokens
-            return Video(data=b"optimized", optimized=True)
+            return Video(data=b"optimized", model=model, optimized=True)
 
         monkeypatch.setattr("voyageai.video_utils.optimize_video", fake_optimize_video)
 
         video = Video.from_path(
             video_path,
+            model="voyage-multimodal-3.5",
             optimize=True,
             optimizer_kwargs={"resize": False, "max_video_tokens": 12345},
         )
@@ -59,6 +75,7 @@ class TestVideoUtils:
         assert video.optimized is True
         assert video.to_bytes() == b"optimized"
         assert called["video"] == video_path
+        assert called["model"] == "voyage-multimodal-3.5"
         assert called["resize"] is False
         assert called["resize_multiple"] == 28
         assert called["downsample_fps"] is True
@@ -68,7 +85,12 @@ class TestVideoUtils:
         video_bytes = b"fake-video-bytes-from-file"
         buf: IO[bytes] = io.BytesIO(video_bytes)
 
-        video = Video.from_file(buf, optimize=False, optimizer_kwargs={"ignored": True})
+        video = Video.from_file(
+            buf,
+            model="voyage-multimodal-3.5",
+            optimize=False,
+            optimizer_kwargs={"ignored": True},
+        )
 
         assert isinstance(video, Video)
         assert video.optimized is False
@@ -83,26 +105,34 @@ class TestVideoUtils:
         def fake_optimize_video(
             video: Union[str, PathLike[str], bytes, Video],
             *,
+            model: str,
             resize: bool = True,
             resize_multiple: int = 28,
             downsample_fps: bool = True,
             max_video_tokens: int = 32000,
         ) -> Video:
             called["video"] = video
-            return Video(data=b"optimized-file", optimized=True)
+            called["model"] = model
+            return Video(data=b"optimized-file", model=model, optimized=True)
 
         monkeypatch.setattr("voyageai.video_utils.optimize_video", fake_optimize_video)
 
-        video = Video.from_file(buf, optimize=True, optimizer_kwargs={"resize": False})
+        video = Video.from_file(
+            buf,
+            model="voyage-multimodal-3.5",
+            optimize=True,
+            optimizer_kwargs={"resize": False},
+        )
 
         assert isinstance(video, Video)
         assert video.optimized is True
         assert video.to_bytes() == b"optimized-file"
         assert called["video"] == video_bytes
+        assert called["model"] == "voyage-multimodal-3.5"
 
     def test_video_to_bytes_and_to_file(self, tmp_path: Path) -> None:
         video_bytes = b"roundtrip-video-bytes"
-        video = Video(data=video_bytes, optimized=False)
+        video = Video(data=video_bytes, model="voyage-multimodal-3.5", optimized=False)
 
         assert video.to_bytes() == video_bytes
 
@@ -111,90 +141,77 @@ class TestVideoUtils:
 
         assert out_path.read_bytes() == video_bytes
 
-    def test_optimize_video_uses_ffmpeg_pipeline_for_path(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+
+    @pytest.mark.integration
+    def test_optimize_video_e2e_example_video(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
         """
-        Sanity-check that optimize_video:
-        - Probes metadata,
-        - Builds an ffmpeg graph,
-        - Returns a Video with optimized=True and MP4 mime type.
+        End-to-end test for optimize_video using the real ffmpeg-python and
+        example_video_01.mp4, validating that:
 
-        This test stubs out the ffmpeg module used by voyageai.video_utils so it
-        does not require the actual ffmpeg binary at test time.
+        - Output bytes form a valid MP4 with a video stream.
+        - num_frames, num_pixels, and estimated_num_tokens on Video are
+          consistent with the client_config and probed metadata.
         """
 
-        # Arrange a fake input file.
-        video_bytes = b"fake-input-video"
-        video_path = tmp_path / "video.bin"
-        video_path.write_bytes(video_bytes)
+        input_path = Path("tests/example_video_01.mp4")
+        assert input_path.is_file(), "tests/example_video_01.mp4 must exist for this test"
 
-        # Stub ffmpeg used inside voyageai.video_utils.
-        calls: Dict[str, Any] = {}
+        video = optimize_video(str(input_path), model="voyage-multimodal-3.5")
 
-        class FakeStream:
-            def __init__(self, label: str) -> None:
-                self.label = label
-                self.filters: Dict[str, Any] = {}
-
-            def filter(self, name: str, *args, **kwargs) -> "FakeStream":
-                self.filters[name] = {"args": args, "kwargs": kwargs}
-                return self
-
-        class FakeFFmpegModule:
-            class Error(Exception):
-                def __init__(self, stderr: bytes = b"") -> None:
-                    super().__init__("ffmpeg error")
-                    self.stderr = stderr
-
-            @staticmethod
-            def probe(path: str) -> Dict[str, Any]:
-                calls["probe_path"] = path
-                return {
-                    "streams": [
-                        {
-                            "codec_type": "video",
-                            "width": 640,
-                            "height": 360,
-                            "r_frame_rate": "30/1",
-                            "duration": "1.0",
-                        }
-                    ],
-                    "format": {"duration": "1.0"},
-                }
-
-            @staticmethod
-            def input(path: str) -> FakeStream:
-                calls["input_path"] = path
-                return FakeStream("input")
-
-            @staticmethod
-            def output(stream: FakeStream, target: str, **kwargs: Any) -> FakeStream:
-                calls["output_target"] = target
-                calls["output_kwargs"] = kwargs
-                return stream
-
-            @staticmethod
-            def run(stream: FakeStream, capture_stdout: bool, capture_stderr: bool):
-                calls["run_capture_stdout"] = capture_stdout
-                calls["run_capture_stderr"] = capture_stderr
-                return b"optimized-mp4", b""
-
-        monkeypatch.setattr("voyageai.video_utils.ffmpeg", FakeFFmpegModule)
-
-        # Act
-        video = optimize_video(str(video_path))
-
-        # Assert
         assert isinstance(video, Video)
         assert video.optimized is True
         assert video.mime_type == "video/mp4"
-        assert video.to_bytes() == b"optimized-mp4"
+        assert len(video.to_bytes()) > 0
 
-        # ffmpeg plumbing was exercised.
-        assert calls["probe_path"] == str(video_path)
-        assert calls["input_path"] == str(video_path)
-        assert calls["output_target"] == "pipe:"
-        assert calls["run_capture_stdout"] is True
-        assert calls["run_capture_stderr"] is True
+        # Persist optimized bytes to disk and probe with real ffmpeg.
+        output_path = tmp_path / "optimized_video.mp4"
+        video.to_file(output_path)
+
+        probe = ffmpeg.probe(str(output_path))  # type: ignore[union-attr]
+        stream = next(
+            s for s in probe["streams"] if s.get("codec_type") == "video"
+        )
+        width = int(stream["width"])
+        height = int(stream["height"])
+        duration = float(stream.get("duration", probe.get("format", {}).get("duration", 0.0)))
+        fps = _parse_fps(stream.get("r_frame_rate", "0/0"))
+
+        assert width > 0 and height > 0
+        assert duration > 0
+        assert fps > 0
+
+        # Recompute expected usage using the same client_config and rules.
+        cfg = _get_client_config("voyage-multimodal-3.5")
+        min_pixels = cfg["multimodal_video_pixels_min"]
+        max_pixels = cfg["multimodal_video_pixels_max"]
+        ratio = cfg["multimodal_video_to_tokens_ratio"]
+
+        frames = int(fps * duration)
+        if frames % 2 == 1:
+            frames -= 1
+        assert frames > 0
+
+        pixels_per_frame_raw = width * height
+        assert pixels_per_frame_raw > 0
+
+        pixels_per_frame = max(
+            min_pixels,
+            min(max_pixels, pixels_per_frame_raw),
+        )
+
+        expected_num_pixels = pixels_per_frame * frames
+        expected_tokens = max(
+            1,
+            (pixels_per_frame // max(ratio, 1)) * frames,
+        )
+
+        assert video.num_frames == frames
+        assert video.num_pixels == expected_num_pixels
+        assert video.estimated_num_tokens == expected_tokens
 
     @pytest.mark.parametrize(
         "original_fps,duration,max_tokens,tokens_per_frame,expected_relation",

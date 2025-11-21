@@ -3,19 +3,12 @@ from __future__ import annotations
 import os
 import tempfile
 from os import PathLike
-from typing import IO, Dict, Optional, Union, Any
+from typing import IO, Dict, Optional, Tuple, Union, Any
 
 try:
     import ffmpeg  # type: ignore[import]
 except ImportError:  # pragma: no cover - handled lazily in functions
     ffmpeg = None  # type: ignore[assignment]
-
-
-# Default approximate pixel-to-token ratio for multimodal video when computing
-# a target FPS during optimization. This mirrors the image-based client config
-# behavior (e.g., 1120 pixels per token) but may be adjusted as backend
-# contracts evolve.
-_DEFAULT_VIDEO_PIXEL_TO_TOKEN_RATIO: int = 1120
 
 
 class Video:
@@ -31,18 +24,31 @@ class Video:
         self,
         data: bytes,
         *,
+        model: str,
         optimized: bool = False,
         mime_type: Optional[str] = None,
+        num_pixels: Optional[int] = None,
+        num_frames: Optional[int] = None,
+        estimated_num_tokens: Optional[int] = None,
     ) -> None:
         self._data = data
+        # The multimodal model this video is intended for (used to pick
+        # client_config and video token accounting parameters).
+        self.model = model
         self.optimized = optimized
         self.mime_type = mime_type
+        # Aggregate video usage characteristics. These are optional and, when
+        # present, should reflect the state of the currently stored bytes.
+        self.num_pixels: Optional[int] = num_pixels
+        self.num_frames: Optional[int] = num_frames
+        self.estimated_num_tokens: Optional[int] = estimated_num_tokens
 
     @classmethod
     def from_path(
         cls,
         path: Union[str, PathLike[str]],
         *,
+        model: str,
         optimize: bool = True,
         optimizer_kwargs: Optional[Dict[str, Any]] = None,
     ) -> "Video":
@@ -58,19 +64,36 @@ class Video:
             # Delegate to the optimizer, normalizing kwargs to an empty dict if needed.
             return optimize_video(
                 path,
+                model=model,
                 **(optimizer_kwargs or {}),
             )
 
         # optimize is False: read bytes directly.
         with open(path, "rb") as f:
             data = f.read()
-        return cls(data=data, optimized=False)
+
+        # Best-effort attempt to populate usage metadata. If probing fails
+        # (e.g. ffmpeg missing or invalid file or client_config not available),
+        # we silently fall back to None.
+        num_pixels, num_frames, estimated_tokens = _compute_basic_usage_for_path(
+            path, model=model
+        )
+
+        return cls(
+            data=data,
+            model=model,
+            optimized=False,
+            num_pixels=num_pixels,
+            num_frames=num_frames,
+            estimated_num_tokens=estimated_tokens,
+        )
 
     @classmethod
     def from_file(
         cls,
         file_obj: IO[bytes],
         *,
+        model: str,
         optimize: bool = True,
         optimizer_kwargs: Optional[Dict[str, Any]] = None,
     ) -> "Video":
@@ -87,11 +110,44 @@ class Video:
         if optimize:
             return optimize_video(
                 data,
+                model=model,
                 **(optimizer_kwargs or {}),
             )
 
-        # optimize is False: wrap the bytes as-is.
-        return cls(data=data, optimized=False)
+        # optimize is False: wrap the bytes as-is, but try to compute metadata.
+        num_pixels: Optional[int] = None
+        num_frames: Optional[int] = None
+        estimated_tokens: Optional[int] = None
+
+        temp_file: Optional[tempfile.NamedTemporaryFile] = None
+        try:
+            temp_file = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False)
+            temp_file.write(data)
+            temp_file.flush()
+            num_pixels, num_frames, estimated_tokens = _compute_basic_usage_for_path(
+                temp_file.name, model=model
+            )
+        finally:
+            if temp_file is not None:
+                temp_name = temp_file.name
+                try:
+                    temp_file.close()
+                except Exception:
+                    pass
+                if temp_name and os.path.exists(temp_name):
+                    try:
+                        os.unlink(temp_name)
+                    except OSError:
+                        pass
+
+        return cls(
+            data=data,
+            model=model,
+            optimized=False,
+            num_pixels=num_pixels,
+            num_frames=num_frames,
+            estimated_num_tokens=estimated_tokens,
+        )
 
     def to_bytes(self) -> bytes:
         """
@@ -106,95 +162,6 @@ class Video:
         with open(path, "wb") as f:
             f.write(self._data)
 
-    def estimated_num_tokens(
-        self,
-        *,
-        model: Optional[str] = None,
-        client_config: Optional[Dict[str, Any]] = None,
-    ) -> int:
-        """
-        Estimate the number of tokens represented by this video for a given model.
-
-        This uses the multimodal video settings from the model's client config:
-
-        - multimodal_video_pixels_min
-        - multimodal_video_pixels_max
-        - multimodal_video_to_tokens_ratio
-
-        and applies the formula:
-
-            pixels_per_frame = max(min_pixels, min(max_pixels, W * H))
-            frames = floor(fps * duration) rounded down to nearest multiple of 2
-            tokens = (pixels_per_frame // pixel_to_token_ratio) * frames
-
-        If client_config is not provided, `model` must be given so that the
-        configuration can be loaded via the internal client-config helper.
-        """
-        if ffmpeg is None:
-            raise ImportError(
-                "ffmpeg-python is required to estimate video tokens. "
-                "Install `ffmpeg-python` and ensure `ffmpeg` is available on PATH."
-            )
-
-        if client_config is None:
-            if model is None:
-                raise ValueError(
-                    "Either `client_config` or `model` must be provided to estimate tokens."
-                )
-            # Lazy import to avoid circular imports at module import time.
-            try:
-                from voyageai._base import _get_client_config  # type: ignore
-            except Exception as exc:  # pragma: no cover - defensive
-                raise RuntimeError(
-                    "Unable to load client config for video token estimation."
-                ) from exc
-
-            client_config = _get_client_config(model)
-
-        min_pixels = int(client_config["multimodal_video_pixels_min"])
-        max_pixels = int(client_config["multimodal_video_pixels_max"])
-        pixel_to_token_ratio = int(client_config["multimodal_video_to_tokens_ratio"])
-
-        temp_file: Optional[tempfile.NamedTemporaryFile] = None
-        try:
-            temp_file = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False)
-            temp_file.write(self._data)
-            temp_file.flush()
-            meta = _probe_video(temp_file.name)
-            width = meta["width"]
-            height = meta["height"]
-            duration = meta["duration"]
-            fps = _parse_fps(meta["r_frame_rate"])
-
-            if fps <= 0 or duration <= 0:
-                return 0
-
-            pixels_per_frame = max(
-                min_pixels,
-                min(max_pixels, width * height),
-            )
-            tokens_per_frame = max(pixels_per_frame // max(pixel_to_token_ratio, 1), 1)
-
-            frames = int(fps * duration)
-            # Round down to nearest multiple of 2 (drop last frame if odd).
-            if frames % 2 == 1:
-                frames -= 1
-            if frames <= 0:
-                return 0
-
-            return tokens_per_frame * frames
-        finally:
-            if temp_file is not None:
-                temp_name = temp_file.name
-                try:
-                    temp_file.close()
-                except Exception:
-                    pass
-                if temp_name and os.path.exists(temp_name):
-                    try:
-                        os.unlink(temp_name)
-                    except OSError:
-                        pass
 
 
 def _load_video_bytes(video: Union[str, PathLike[str], bytes, Video]) -> bytes:
@@ -247,6 +214,97 @@ def _probe_video(path: Union[str, PathLike[str]]) -> Dict[str, Any]:
         "r_frame_rate": video_stream.get("r_frame_rate", "0/0"),
         "duration": float(duration_str),
     }
+
+
+def _compute_basic_usage_for_path(
+    path: Union[str, PathLike[str]],
+    *,
+    model: str,
+) -> Tuple[Optional[int], Optional[int], Optional[int]]:
+    """
+    Compute simple usage statistics (num_pixels, num_frames, estimated_tokens)
+    for a video at the given path.
+
+    This uses the native resolution and frame rate of the source video and the
+    default pixel-to-token ratio for multimodal video.
+
+    If probing fails (e.g. ffmpeg is missing or the file is not a valid video),
+    this function returns (None, None, None) instead of raising.
+    """
+    try:
+        meta = _probe_video(path)
+    except Exception:
+        return None, None, None
+
+    width = meta["width"]
+    height = meta["height"]
+    duration = meta["duration"]
+    fps = _parse_fps(meta["r_frame_rate"])
+
+    if fps <= 0 or duration <= 0:
+        return None, None, None
+
+    frames = int(fps * duration)
+    if frames % 2 == 1:
+        frames -= 1
+    if frames <= 0:
+        return None, None, None
+
+    video_config = _get_video_token_config(model)
+    pixels_per_frame_raw = width * height
+    if pixels_per_frame_raw <= 0:
+        return None, None, None
+
+    if video_config is None:
+        num_pixels = pixels_per_frame_raw * frames
+        estimated_tokens = None
+        return num_pixels, frames, estimated_tokens
+
+    min_video_pixels, max_video_pixels, video_pixel_to_token_ratio = video_config
+    pixels_per_frame = max(
+        min_video_pixels,
+        min(max_video_pixels, pixels_per_frame_raw),
+    )
+
+    num_pixels = pixels_per_frame * frames
+    estimated_tokens = max(
+        1,
+        (pixels_per_frame // max(video_pixel_to_token_ratio, 1))
+        * frames,
+    )
+
+    return num_pixels, frames, estimated_tokens
+
+
+def _get_video_token_config(
+    model: str,
+) -> Optional[Tuple[int, int, int]]:
+    """
+    Load the multimodal video token accounting parameters for the given model.
+
+    Returns (min_video_pixels, max_video_pixels, video_pixel_to_token_ratio) or
+    None if the client config could not be loaded.
+    """
+    try:
+        from voyageai._base import _get_client_config  # type: ignore
+    except Exception:
+        return None
+
+    try:
+        client_config = _get_client_config(model)
+    except Exception:
+        return None
+
+    try:
+        min_video_pixels = int(client_config["multimodal_video_pixels_min"])
+        max_video_pixels = int(client_config["multimodal_video_pixels_max"])
+        video_pixel_to_token_ratio = int(
+            client_config["multimodal_video_to_tokens_ratio"]
+        )
+    except (KeyError, TypeError, ValueError):
+        return None
+
+    return min_video_pixels, max_video_pixels, video_pixel_to_token_ratio
 
 
 def _parse_fps(r_frame_rate: str) -> float:
@@ -308,6 +366,7 @@ def _compute_target_fps(
 def optimize_video(
     video: Union[str, PathLike[str], bytes, Video],
     *,
+    model: str,
     resize: bool = True,
     resize_multiple: int = 28,
     downsample_fps: bool = True,
@@ -366,6 +425,9 @@ def optimize_video(
         duration = meta["duration"]
         original_fps = _parse_fps(meta["r_frame_rate"])
 
+        # Load model-specific video token accounting parameters, if available.
+        video_config = _get_video_token_config(model)
+
         if resize:
             target_width = _round_to_multiple(width, resize_multiple)
             target_height = _round_to_multiple(height, resize_multiple)
@@ -373,14 +435,24 @@ def optimize_video(
             target_width = width
             target_height = height
 
-        if downsample_fps and max_video_tokens is not None:
+        if (
+            downsample_fps
+            and max_video_tokens is not None
+            and video_config is not None
+        ):
             # Estimate tokens-per-frame based on the current spatial resolution,
-            # using the same pixel-to-token ratio as the multimodal image config.
-            # This avoids a hard-coded constant and scales with resolution.
-            pixels_per_frame = width * height
+            # using the same pixel-to-token ratio and pixel bounds as the
+            # multimodal video client configuration.
+            min_video_pixels, max_video_pixels, video_pixel_to_token_ratio = video_config
+
+            pixels_per_frame_raw = target_width * target_height
+            pixels_per_frame = max(
+                min_video_pixels,
+                min(max_video_pixels, pixels_per_frame_raw),
+            )
             tokens_per_frame = max(
                 1,
-                pixels_per_frame // max(_DEFAULT_VIDEO_PIXEL_TO_TOKEN_RATIO, 1),
+                pixels_per_frame // max(video_pixel_to_token_ratio, 1),
             )
             target_fps = _compute_target_fps(
                 original_fps=original_fps,
@@ -390,6 +462,39 @@ def optimize_video(
             )
         else:
             target_fps = original_fps
+
+        # Approximate frame count after FPS adjustment, and ensure an even
+        # number of frames by dropping the last one if needed.
+        frames = 0
+        if target_fps > 0 and duration > 0:
+            frames = int(target_fps * duration)
+            if frames % 2 == 1:
+                frames -= 1
+            if frames < 0:
+                frames = 0
+
+        # Aggregate usage estimates based on the current resolution.
+        pixels_per_frame_raw = target_width * target_height
+        num_pixels: Optional[int] = None
+        estimated_tokens: Optional[int] = None
+        if frames > 0 and pixels_per_frame_raw > 0:
+            if video_config is not None:
+                min_video_pixels, max_video_pixels, video_pixel_to_token_ratio = video_config
+                pixels_per_frame = max(
+                    min_video_pixels,
+                    min(max_video_pixels, pixels_per_frame_raw),
+                )
+                num_pixels = pixels_per_frame * frames
+                estimated_tokens = max(
+                    1,
+                    (pixels_per_frame // max(video_pixel_to_token_ratio, 1))
+                    * frames,
+                )
+            else:
+                # Fallback: we can still expose num_pixels if desired, but we
+                # cannot provide a model-aligned token estimate.
+                num_pixels = pixels_per_frame_raw * frames
+                estimated_tokens = None
 
         # 3. Build the ffmpeg filter graph.
         stream = ffmpeg.input(str(input_path))  # type: ignore[union-attr]
@@ -425,16 +530,23 @@ def optimize_video(
             "crf": 20,
             "maxrate": "6M",
             "bufsize": "12M",
-            "movflags": "+faststart",
             "an": None,  # drop audio
             "r": target_fps if target_fps > 0 else None,
-            "x264_params": x264_params,
+            "x264-params": x264_params,
         }
 
         # Remove None values (ffmpeg-python does not accept them as kwargs).
         output_kwargs = {k: v for k, v in output_kwargs.items() if v is not None}
 
-        stream = ffmpeg.output(stream, "pipe:", **output_kwargs)  # type: ignore[union-attr]
+        # Write to a temporary file to avoid MP4-on-pipe limitations on some
+        # ffmpeg builds (e.g. "muxer does not support non seekable output").
+        out_fd, out_path = tempfile.mkstemp(suffix=".mp4")
+        os.close(out_fd)
+
+        # Tell ffmpeg it is allowed to overwrite the (empty) temp file path it
+        # will write to, to avoid interactive "Overwrite? [y/N]" prompts.
+        stream = ffmpeg.output(stream, str(out_path), **output_kwargs)  # type: ignore[union-attr]
+        stream = stream.overwrite_output()  # type: ignore[union-attr]
 
         try:
             out, err = ffmpeg.run(
@@ -454,8 +566,31 @@ def optimize_video(
                 raise RuntimeError(f"ffmpeg optimization failed: {decoded}") from e
             raise
 
-        # Successful optimization; wrap in Video object.
-        return Video(data=out, mime_type="video/mp4", optimized=True)
+        # Ensure that ffmpeg actually wrote a non-empty file.
+        if not os.path.exists(out_path) or os.path.getsize(out_path) == 0:
+            decoded_err = (
+                err.decode("utf-8", errors="ignore")
+                if isinstance(err, (bytes, bytearray))
+                else str(err)
+            )
+            raise RuntimeError(
+                f"ffmpeg optimization produced empty output for {input_path}: {decoded_err}"
+            )
+
+        # Read optimized bytes from disk.
+        with open(out_path, "rb") as f:
+            out_bytes = f.read()
+
+        # Successful optimization; wrap in Video object, attaching usage metadata.
+        return Video(
+            data=out_bytes,
+            model=model,
+            mime_type="video/mp4",
+            optimized=True,
+            num_pixels=num_pixels,
+            num_frames=frames if frames > 0 else None,
+            estimated_num_tokens=estimated_tokens,
+        )
     finally:
         if temp_file is not None:
             temp_name = temp_file.name
@@ -468,5 +603,11 @@ def optimize_video(
                     os.unlink(temp_name)
                 except OSError:
                     pass
+        # Clean up temporary output file if it was created.
+        try:
+            if "out_path" in locals() and os.path.exists(out_path):
+                os.unlink(out_path)
+        except OSError:
+            pass
 
 
