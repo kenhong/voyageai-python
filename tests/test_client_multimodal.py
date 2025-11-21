@@ -260,28 +260,28 @@ class TestClient:
         assert query_embd.total_tokens == doc_embd.total_tokens
 
     def test_multimodal_client_embed_output_dtype(self, client, multimodal_model):
-        result = client.multimodal_embed([sample_input_list_text_01, sample_input_list_img_01], model=multimodal_model)
+        result = embed_with_client(client, inputs=[sample_input_list_text_01, sample_input_list_img_01], model=multimodal_model)
         assert len(result.embeddings) == 2
         assert len(result.embeddings[0]) == 1024
         assert isinstance(result.embeddings[0][0], float)
         assert result.total_tokens > 0
 
-        result = client.multimodal_embed([sample_input_list_text_01, sample_input_list_img_01], model=multimodal_model, output_dtype="float", output_dimension=1024)
+        result = embed_with_client(client, inputs=[sample_input_list_text_01, sample_input_list_img_01], model=multimodal_model, output_dtype="float", output_dimension=1024)
         assert len(result.embeddings) == 2
         assert len(result.embeddings[0]) == 1024
         assert isinstance(result.embeddings[0][0], float)
 
-        result = client.multimodal_embed([sample_input_list_text_01, sample_input_list_img_01], model=multimodal_model)
+        result = embed_with_client(client, inputs=[sample_input_list_text_01, sample_input_list_img_01], model=multimodal_model)
         assert len(result.embeddings) == 2
         assert len(result.embeddings[0]) == 1024
         assert isinstance(result.embeddings[0][0], float)
 
-        result = client.multimodal_embed([sample_input_list_text_01, sample_input_list_img_01], model=multimodal_model, output_dtype="int8", output_dimension=2048)
+        result = embed_with_client(client, inputs=[sample_input_list_text_01, sample_input_list_img_01], model=multimodal_model, output_dtype="int8", output_dimension=2048)
         assert len(result.embeddings) == 2
         assert len(result.embeddings[0]) == 2048
         assert isinstance(result.embeddings[0][0], int)
 
-        result = client.multimodal_embed([sample_input_list_text_01, sample_input_list_img_01], model=multimodal_model, output_dtype="ubinary", output_dimension=256)
+        result = embed_with_client(client, inputs=[sample_input_list_text_01, sample_input_list_img_01], model=multimodal_model, output_dtype="ubinary", output_dimension=256)
         assert len(result.embeddings) == 2
         assert len(result.embeddings[0]) == 32
         assert isinstance(result.embeddings[0][0], int)
