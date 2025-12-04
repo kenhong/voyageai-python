@@ -187,7 +187,6 @@ class TestClient:
         assert len(result.embeddings[0]) == embedding_dimension
         assert result.text_tokens > 0 or result.image_pixels > 0 or result.video_pixels > 0
         assert result.total_tokens > 0
-        import time
 
     @pytest.mark.parametrize(
         "inputs, expected_exception",
