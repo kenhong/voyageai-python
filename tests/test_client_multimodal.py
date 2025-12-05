@@ -143,7 +143,7 @@ sample_input_dict_video_url_01 = {
     "content": [
         {
             "type": "video_url",
-            "video_url": "https://github.com/kenhong/voyageai-python/raw/refs/heads/v0.3.6/tests/example_video_01.mp4",
+            "video_url": "https://archive.org/download/example_30s_0.25fps_shortgop/example_30s_0.25fps_shortgop.mp4",
         },
     ],
 }
@@ -546,11 +546,11 @@ class TestClient:
             ([sample_input_dict_url_01], -1),
             ([sample_input_dict_mixed_01], -1),
             ([sample_input_dict_text_01, sample_input_dict_url_01], -1),
-            ([sample_input_dict_video_01], (0, 0, 13120, 14745600)),
-            ([sample_input_list_video_01], (0, 0, 13120, 14745600)),
-            ([sample_input_list_video_02], (0, 0, 13376, 15002624)),
-            ([sample_input_list_text_01, sample_input_list_video_01], (13, 0, 13133, 14745600)),
-            ([sample_input_dict_text_01, sample_input_dict_video_01], (13, 0, 13133, 14745600)),
+            ([sample_input_dict_video_01], (0, 0, 13165, 14745600)),
+            ([sample_input_list_video_01], (0, 0, 13165, 14745600)),
+            ([sample_input_list_video_02], (0, 0, 13395, 15002624)),
+            ([sample_input_list_text_01, sample_input_list_video_01], (13, 0, 13178, 14745600)),
+            ([sample_input_dict_text_01, sample_input_dict_video_01], (13, 0, 13178, 14745600)),
         ],
     )
     def test_client_count_usage(self, client, inputs, expected_count, multimodal_model):
