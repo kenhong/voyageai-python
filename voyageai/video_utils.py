@@ -188,7 +188,6 @@ def _ensure_ffmpeg_available() -> None:
             "ffmpeg-python is required for video optimization. "
             "Install `ffmpeg-python` and ensure `ffmpeg` is available on PATH."
         )
-        # Check that the ffmpeg binary is on PATH
     if shutil.which("ffmpeg") is None:
         raise EnvironmentError(
             "The `ffmpeg` executable was not found on PATH. "

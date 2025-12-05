@@ -148,7 +148,6 @@ class AsyncClient(_BaseClient):
         truncation: bool = True,
         output_dtype: Optional[str] = None,
         output_dimension: Optional[int] = None,
-        call_id: Optional[str] = None,
     ) -> MultimodalEmbeddingsObject:
         response = None
         async for attempt in self._make_retry_controller():

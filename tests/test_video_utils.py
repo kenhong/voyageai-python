@@ -156,11 +156,7 @@ class TestVideoUtils:
         - num_frames, num_pixels, and estimated_num_tokens on Video are
           consistent with the client_config and probed metadata.
         """
-
-        try:
-            _ensure_ffmpeg_available()
-        except EnvironmentError:
-            pytest.skip("ffmpeg not available, skipping test")
+        _ensure_ffmpeg_available()
 
         input_path = Path("tests/example_video_01.mp4")
         assert input_path.is_file(), "tests/example_video_01.mp4 must exist for this test"
