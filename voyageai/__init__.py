@@ -2,11 +2,11 @@
 #
 # Originally forked from the MIT-licensed OpenAI Python bindings.
 
-import os
-import sys
-from typing import TYPE_CHECKING, Optional, Union, Callable
+# ruff: noqa
 
+import sys
 from contextvars import ContextVar
+from typing import TYPE_CHECKING, Callable, Optional, Union
 
 if "pkg_resources" not in sys.modules:
     # workaround for the following:
@@ -20,18 +20,21 @@ VOYAGE_EMBED_BATCH_SIZE = 128
 VOYAGE_EMBED_DEFAULT_MODEL = "voyage-2"
 
 from voyageai.api_resources import (
-    ContextualizedEmbedding, Embedding, Reranking, MultimodalEmbedding,
+    ContextualizedEmbedding,
+    Embedding,
+    MultimodalEmbedding,
+    Reranking,
 )
-from voyageai.version import VERSION
 from voyageai.chunking import default_chunk_fn
 from voyageai.client import Client
 from voyageai.client_async import AsyncClient
 from voyageai.embeddings_utils import (
-    get_embedding,
-    get_embeddings,
     aget_embedding,
     aget_embeddings,
+    get_embedding,
+    get_embeddings,
 )
+from voyageai.version import VERSION
 
 if TYPE_CHECKING:
     import requests
