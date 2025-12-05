@@ -34,3 +34,42 @@ jobs:
       run: $POETRY_HOME/bin/poetry install
     - name: Run tests
       run: $POETRY_HOME/bin/poetry run pytest
+
+  video-tests:
+    name: ffmpeg ${{ matrix.ffmpeg-version }} / py${{ matrix.python-version }}
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.13"]
+        ffmpeg-version: ["5.0.1","6.0.1", "7.0.2"]
+    env:
+      VOYAGE_API_KEY: ${{ secrets.VOYAGE_API_KEY }}
+      POETRY_HOME: "/opt/poetry"
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install poetry
+        run: |
+          python3 -m venv $POETRY_HOME
+          $POETRY_HOME/bin/pip install poetry==1.8.4
+          $POETRY_HOME/bin/poetry --version
+      - name: Install ffmpeg ${{ matrix.ffmpeg-version }}
+        run: |
+          set -eux
+          FFMPEG_VERSION="${{ matrix.ffmpeg-version }}"
+          curl -L "https://johnvansickle.com/ffmpeg/releases/ffmpeg-${FFMPEG_VERSION}-amd64-static.tar.xz" -o ffmpeg.tar.xz
+          tar -xJf ffmpeg.tar.xz
+          sudo mv ffmpeg-${FFMPEG_VERSION}-amd64-static/ffmpeg /usr/local/bin/ffmpeg
+          sudo mv ffmpeg-${FFMPEG_VERSION}-amd64-static/ffprobe /usr/local/bin/ffprobe
+          ffmpeg -version
+
+      - name: Install package (with test deps)
+        run: $POETRY_HOME/bin/poetry install
+
+      - name: Run video utils tests
+        run: $POETRY_HOME/bin/poetry run pytest tests/test_video_utils.py

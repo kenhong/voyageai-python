@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import shutil
+import subprocess
 import tempfile
 from os import PathLike
 from typing import IO, Any, Dict, Optional, Tuple, Union
@@ -186,6 +188,23 @@ def _ensure_ffmpeg_available() -> None:
             "ffmpeg-python is required for video optimization. "
             "Install `ffmpeg-python` and ensure `ffmpeg` is available on PATH."
         )
+        # Check that the ffmpeg binary is on PATH
+    if shutil.which("ffmpeg") is None:
+        raise EnvironmentError(
+            "The `ffmpeg` executable was not found on PATH. "
+            "Please install ffmpeg and make sure it is accessible in your environment."
+        )
+    try:
+        subprocess.run(
+            ["ffmpeg", "-version"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+        )
+    except Exception as exc:
+        raise EnvironmentError(
+            "Failed to execute `ffmpeg`. Please verify your ffmpeg installation."
+        ) from exc
 
 
 def _probe_video(path: Union[str, PathLike[str]]) -> Dict[str, Any]:
