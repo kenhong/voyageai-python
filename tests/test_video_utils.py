@@ -8,6 +8,7 @@ from voyageai._base import _get_client_config
 from voyageai.video_utils import (
     Video,
     _compute_target_fps,
+    _ensure_ffmpeg_available,
     _parse_fps,
     optimize_video,
 )
@@ -142,7 +143,6 @@ class TestVideoUtils:
 
         assert out_path.read_bytes() == video_bytes
 
-    @pytest.mark.integration
     def test_optimize_video_e2e_example_video(
         self,
         tmp_path: Path,
@@ -156,6 +156,8 @@ class TestVideoUtils:
         - num_frames, num_pixels, and estimated_num_tokens on Video are
           consistent with the client_config and probed metadata.
         """
+
+        _ensure_ffmpeg_available()
 
         input_path = Path("tests/example_video_01.mp4")
         assert input_path.is_file(), "tests/example_video_01.mp4 must exist for this test"
