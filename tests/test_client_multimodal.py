@@ -1,15 +1,14 @@
 import asyncio
+import math
 import base64
 from inspect import iscoroutinefunction
 from pathlib import Path
 from typing import List
 
 import pytest
-from PIL import Image
-
 import voyageai
 import voyageai.error as error
-import math
+from PIL import Image
 
 from voyageai.video_utils import Video
 
@@ -209,10 +208,7 @@ class TestClient:
                 [sample_input_dict_mixed_01, sample_input_list_mixed_01],
                 voyageai.error.InvalidRequestError,
             ),  # no mixing dict and list
-            (
-                {},
-                voyageai.error.InvalidRequestError
-            ), # inputs is not a list
+            ({}, voyageai.error.InvalidRequestError),  # inputs is not a list
         ],
     )
     def test_client_multimodal_embed_raises_exception(
@@ -295,9 +291,7 @@ class TestClient:
 
         inputs = [long_input]
         with pytest.raises(voyageai.error.InvalidRequestError):
-            embed_with_client(
-                client, inputs=inputs, model=multimodal_model, truncation=False
-            )
+            embed_with_client(client, inputs=inputs, model=multimodal_model, truncation=False)
 
         truncated_result = embed_with_client(
             client, inputs=inputs, model=multimodal_model, truncation=True
@@ -308,9 +302,7 @@ class TestClient:
 
     def test_client_embed_invalid_request(self, client, multimodal_model):
         with pytest.raises(error.InvalidRequestError):
-            embed_with_client(
-                client, inputs=[sample_input_list_mixed_01], model="wrong-model-name"
-            )
+            embed_with_client(client, inputs=[sample_input_list_mixed_01], model="wrong-model-name")
 
         with pytest.raises(error.InvalidRequestError):
             embed_with_client(
@@ -329,9 +321,7 @@ class TestClient:
             )
 
         with pytest.raises(error.InvalidRequestError):
-            embed_with_client(
-                client, inputs=[], model=multimodal_model, truncation="test"
-            )
+            embed_with_client(client, inputs=[], model=multimodal_model, truncation="test")
 
     def test_client_multimodal_embed_dict_video_payload(
         self, client, multimodal_model, monkeypatch
@@ -485,7 +475,7 @@ class TestClient:
             "content": [
                 {
                     "type": "image_url",
-                    "image_url": "https://github.com/voyage-ai/voyageai-python/blob/4333a2eee7c4558cf3d9ad5ac2576a98c94c363a/tests/example_image_01.jpg?raw=true"
+                    "image_url": "https://github.com/voyage-ai/voyageai-python/blob/4333a2eee7c4558cf3d9ad5ac2576a98c94c363a/tests/example_image_01.jpg?raw=true",
                 },
             ],
         }
@@ -533,9 +523,7 @@ class TestClient:
     )
     def test_client_count_usage(self, client, inputs, expected_count, multimodal_model):
         if isinstance(expected_count, tuple):
-            estimated_usage = client.count_usage(
-                inputs=inputs, model=multimodal_model
-            )
+            estimated_usage = client.count_usage(inputs=inputs, model=multimodal_model)
             assert estimated_usage["text_tokens"] == expected_count[0]
             assert estimated_usage["image_pixels"] == expected_count[1]
             assert estimated_usage["total_tokens"] == expected_count[2]

@@ -11,9 +11,10 @@ from voyageai.api_resources import VoyageResponse
 from voyageai.video_utils import Video
 
 try:
-    from pydantic.v1 import BaseModel, Field, Extra, ValidationError
+    from pydantic.v1 import BaseModel, Extra, Field, ValidationError
 except ImportError:
-    from pydantic import BaseModel, Field, Extra, ValidationError
+    from pydantic import BaseModel, Extra, Field, ValidationError
+
 
 class MultimodalEmbeddingsObject:
     def __init__(self, response: Optional[VoyageResponse] = None):
@@ -54,9 +55,7 @@ class MultimodalInputSegmentText(BaseModel):
 
 
 class MultimodalInputSegmentImageURL(BaseModel):
-    type: Literal[
-        MultimodalInputSegmentType.IMAGE_URL
-    ] = MultimodalInputSegmentType.IMAGE_URL
+    type: Literal[MultimodalInputSegmentType.IMAGE_URL] = MultimodalInputSegmentType.IMAGE_URL
     image_url: str
 
     class Config:
@@ -64,9 +63,7 @@ class MultimodalInputSegmentImageURL(BaseModel):
 
 
 class MultimodalInputSegmentImageBase64(BaseModel):
-    type: Literal[
-        MultimodalInputSegmentType.IMAGE_BASE64
-    ] = MultimodalInputSegmentType.IMAGE_BASE64
+    type: Literal[MultimodalInputSegmentType.IMAGE_BASE64] = MultimodalInputSegmentType.IMAGE_BASE64
     image_base64: str
 
     class Config:
@@ -169,9 +166,7 @@ class MultimodalInputRequest(BaseModel):
                     multimodal_input = cls._process_list_input(input_data, idx)
                 else:
                     # This should not happen due to earlier checks
-                    raise error.InvalidRequestError(
-                        f"Unsupported input kind at index {idx}."
-                    )
+                    raise error.InvalidRequestError(f"Unsupported input kind at index {idx}.")
                 multimodal_inputs.append(multimodal_input)
             except (ValidationError, ValueError) as e:
                 raise error.InvalidRequestError(
@@ -260,7 +255,9 @@ class MultimodalInputRequest(BaseModel):
         if isinstance(item, str):
             return MultimodalInputSegmentText(text=item)
         elif isinstance(item, PIL.Image.Image):
-            image_base64 = MultimodalInputRequest._image_to_base64(item, conversion_kwargs={"lossless": True})
+            image_base64 = MultimodalInputRequest._image_to_base64(
+                item, conversion_kwargs={"lossless": True}
+            )
             return MultimodalInputSegmentImageBase64(image_base64=image_base64)
         elif isinstance(item, Video):
             video_base64 = MultimodalInputRequest._video_to_base64(item)
