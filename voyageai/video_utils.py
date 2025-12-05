@@ -7,6 +7,8 @@ import tempfile
 from os import PathLike
 from typing import IO, Any, Dict, Optional, Tuple, Union
 
+from voyageai.error import VideoProcessingError
+
 try:
     import ffmpeg  # type: ignore[import]
 except ImportError:  # pragma: no cover - handled lazily in functions
@@ -240,8 +242,10 @@ def _compute_basic_usage_for_path(
     Compute simple usage statistics (num_pixels, num_frames, estimated_tokens)
     for a video at the given path.
 
-    This uses the native resolution and frame rate of the source video and the
-    default pixel-to-token ratio for multimodal video.
+    This uses the native resolution and frame rate of the source video and,
+    when available, the model's configured pixel-to-token ratio for multimodal
+    video. If the client config cannot be loaded, num_pixels and num_frames
+    are still computed, but estimated_tokens is returned as None.
 
     If probing fails (e.g. ffmpeg is missing or the file is not a valid video),
     this function returns (None, None, None) instead of raising.
@@ -345,20 +349,35 @@ def _compute_target_fps(
     """
     Approximate a target fps given max_video_tokens.
 
-    Assumes roughly `tokens_per_frame` tokens per frame.
-    This is a heuristic and may be tuned later or aligned more closely
-    with server-side accounting.
-    """
-    if original_fps <= 0 or duration_sec <= 0:
-        return original_fps
+    Assumes roughly `tokens_per_frame` tokens per frame. This is a heuristic
+    and may be tuned later or aligned more closely with server-side
+    accounting.
 
+    The computed fps is additionally constrained so that the resulting frame
+    count is at least two frames and strictly positive.
+
+    Raises:
+        ValueError: If `max_video_tokens` is less than or equal to 0.
+        VideoProcessingError: If the input video has invalid duration or
+            frame rate, or if the token budget is too small to sample at
+            least two frames.
+    """
     if max_video_tokens <= 0:
-        return original_fps
+        raise ValueError("'max_video_tokens' must be greater than 0")
+
+    if original_fps <= 0 or duration_sec <= 0:
+        raise VideoProcessingError(
+            "Invalid video duration or frame rate. Please provide a valid video duration and frame rate."
+        )
 
     max_frames = max_video_tokens // max(tokens_per_frame, 1)
     approx_fps_limit = max_frames / duration_sec
-    if approx_fps_limit <= 0:
-        return original_fps
+
+    if approx_fps_limit <= 0 or max_frames < 2:
+        raise VideoProcessingError(
+            "The provided video cannot be downsampled to fit within the specified 'max_video_tokens'. "
+            "Please increase 'max_video_tokens' or resize your video before proceeding."
+        )
 
     target_fps = min(original_fps, approx_fps_limit)
 
@@ -402,8 +421,17 @@ def optimize_video(
         Approximate token budget for video frames. This function uses a simple
         heuristic tokens-per-frame estimate to select a target fps.
 
+    This function requires `ffmpeg-python` and the `ffmpeg` binary to be
+    installed and available on PATH.
+
     Returns:
         A Video instance containing the optimized MP4 bytes.
+
+    Raises:
+        TypeError: If the provided `video` input type is unsupported.
+        VideoProcessingError: If optimization fails (for example, due to
+            ffmpeg errors, invalid metadata, or a `max_video_tokens` value
+            that is too small to sample at least two frames).
     """
     _ensure_ffmpeg_available()
 
@@ -546,8 +574,6 @@ def optimize_video(
         out_fd, out_path = tempfile.mkstemp(suffix=".mp4")
         os.close(out_fd)
 
-        # Tell ffmpeg it is allowed to overwrite the (empty) temp file path it
-        # will write to, to avoid interactive "Overwrite? [y/N]" prompts.
         stream = ffmpeg.output(stream, str(out_path), **output_kwargs)  # type: ignore[union-attr]
         stream = stream.overwrite_output()  # type: ignore[union-attr]
 
@@ -566,7 +592,7 @@ def optimize_video(
                     if isinstance(stderr, (bytes, bytearray))
                     else str(stderr)
                 )
-                raise RuntimeError(f"ffmpeg optimization failed: {decoded}") from e
+                raise VideoProcessingError(f"ffmpeg optimization failed: {decoded}") from e
             raise
 
         # Ensure that ffmpeg actually wrote a non-empty file.
@@ -576,7 +602,7 @@ def optimize_video(
                 if isinstance(err, (bytes, bytearray))
                 else str(err)
             )
-            raise RuntimeError(
+            raise VideoProcessingError(
                 f"ffmpeg optimization produced empty output for {input_path}: {decoded_err}"
             )
 

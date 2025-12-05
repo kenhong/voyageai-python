@@ -1,10 +1,12 @@
 import io
+from contextlib import nullcontext
 from os import PathLike
 from pathlib import Path
 from typing import IO, Any, Dict, Union
 
 import pytest
 from voyageai._base import _get_client_config
+from voyageai.error import VideoProcessingError
 from voyageai.video_utils import (
     Video,
     _compute_target_fps,
@@ -143,8 +145,26 @@ class TestVideoUtils:
 
         assert out_path.read_bytes() == video_bytes
 
+    @pytest.mark.parametrize(
+        "max_video_tokens, should_raise",
+        [
+            (32000, nullcontext()),
+            (16000, nullcontext()),
+            (8000, nullcontext()),
+            (4000, nullcontext()),
+            (3000, nullcontext()),
+            (2000, nullcontext()),
+            (1000, nullcontext()),
+            (500, nullcontext()),
+            (400, pytest.raises(VideoProcessingError)),  # Results in 1 frame, which is invalid
+            (200, pytest.raises(VideoProcessingError)),  # Results in 0 frames, which is invalid
+            (0, pytest.raises(ValueError)),
+        ],  # 0 is an invalid input
+    )
     def test_optimize_video_e2e_example_video(
         self,
+        max_video_tokens: int,
+        should_raise: Any,
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
@@ -161,62 +181,68 @@ class TestVideoUtils:
         input_path = Path("tests/example_video_01.mp4")
         assert input_path.is_file(), "tests/example_video_01.mp4 must exist for this test"
 
-        video = optimize_video(str(input_path), model="voyage-multimodal-3.5")
+        with should_raise:
+            video = optimize_video(
+                str(input_path), model="voyage-multimodal-3.5", max_video_tokens=max_video_tokens
+            )
 
-        assert isinstance(video, Video)
-        assert video.optimized is True
-        assert video.mime_type == "video/mp4"
-        assert len(video.to_bytes()) > 0
+        if isinstance(should_raise, nullcontext):
+            assert isinstance(video, Video)
+            assert video.optimized is True
+            assert video.mime_type == "video/mp4"
+            assert len(video.to_bytes()) > 0
 
-        # Persist optimized bytes to disk and probe with real ffmpeg.
-        output_path = tmp_path / "optimized_video.mp4"
-        video.to_file(output_path)
+            # Persist optimized bytes to disk and probe with real ffmpeg.
+            output_path = tmp_path / "optimized_video.mp4"
+            video.to_file(output_path)
 
-        probe = ffmpeg.probe(str(output_path))  # type: ignore[union-attr]
-        stream = next(s for s in probe["streams"] if s.get("codec_type") == "video")
-        width = int(stream["width"])
-        height = int(stream["height"])
-        duration = float(stream.get("duration", probe.get("format", {}).get("duration", 0.0)))
-        fps = _parse_fps(stream.get("r_frame_rate", "0/0"))
+            probe = ffmpeg.probe(str(output_path))  # type: ignore[union-attr]
+            stream = next(s for s in probe["streams"] if s.get("codec_type") == "video")
+            width = int(stream["width"])
+            height = int(stream["height"])
+            duration = float(stream.get("duration", probe.get("format", {}).get("duration", 0.0)))
+            fps = _parse_fps(stream.get("r_frame_rate", "0/0"))
 
-        assert width > 0 and height > 0
-        assert duration > 0
-        assert fps > 0
+            assert width > 0 and height > 0
+            assert duration > 0
+            assert fps > 0
 
-        # Recompute expected usage using the same client_config and rules.
-        cfg = _get_client_config("voyage-multimodal-3.5")
-        min_pixels = cfg["multimodal_video_pixels_min"]
-        max_pixels = cfg["multimodal_video_pixels_max"]
-        ratio = cfg["multimodal_video_to_tokens_ratio"]
+            # Recompute expected usage using the same client_config and rules.
+            cfg = _get_client_config("voyage-multimodal-3.5")
+            min_pixels = cfg["multimodal_video_pixels_min"]
+            max_pixels = cfg["multimodal_video_pixels_max"]
+            ratio = cfg["multimodal_video_to_tokens_ratio"]
 
-        frames = int(fps * duration)
-        if frames % 2 == 1:
-            frames -= 1
-        assert frames > 0
+            frames = int(fps * duration)
+            if frames % 2 == 1:
+                frames -= 1
+            assert frames > 0
 
-        pixels_per_frame_raw = width * height
-        assert pixels_per_frame_raw > 0
+            pixels_per_frame_raw = width * height
+            assert pixels_per_frame_raw > 0
 
-        pixels_per_frame = max(
-            min_pixels,
-            min(max_pixels, pixels_per_frame_raw),
-        )
+            pixels_per_frame = max(
+                min_pixels,
+                min(max_pixels, pixels_per_frame_raw),
+            )
 
-        expected_num_pixels = pixels_per_frame * frames
-        expected_tokens = max(
-            1,
-            (pixels_per_frame * frames) // max(ratio, 1),
-        )
+            expected_num_pixels = pixels_per_frame * frames
+            expected_tokens = max(
+                1,
+                (pixels_per_frame * frames) // max(ratio, 1),
+            )
 
-        assert video.num_frames == frames
-        assert video.num_pixels == expected_num_pixels
-        assert video.estimated_num_tokens == expected_tokens
+            assert video.num_frames == frames
+            assert video.num_pixels == expected_num_pixels
+            assert video.estimated_num_tokens == expected_tokens
 
     @pytest.mark.parametrize(
-        "original_fps,duration,max_tokens,tokens_per_frame,expected_relation",
+        "original_fps,duration,max_tokens,tokens_per_frame,expected_relation,should_raise",
         [
-            (30.0, 10.0, 1600, 16, "lt"),  # should downsample
-            (30.0, 1.0, 10_000_000, 16, "eq"),  # effectively unchanged
+            (30.0, 10.0, 1600, 16, "lt", nullcontext()),  # should downsample
+            (30.0, 1.0, 10_000_000, 16, "eq", nullcontext()),  # effectively unchanged
+            (30.0, 30, 3000, 2000000, "lt", pytest.raises(VideoProcessingError)),
+            (30.0, 30, 1000, 2000000, "lt", pytest.raises(VideoProcessingError)),
         ],
     )
     def test_compute_target_fps_behavior(
@@ -226,15 +252,17 @@ class TestVideoUtils:
         max_tokens: int,
         tokens_per_frame: int,
         expected_relation: str,
+        should_raise: Any,
     ) -> None:
-        target_fps = _compute_target_fps(
-            original_fps=original_fps,
-            duration_sec=duration,
-            max_video_tokens=max_tokens,
-            tokens_per_frame=tokens_per_frame,
-        )
-
-        if expected_relation == "lt":
-            assert target_fps <= original_fps
-        elif expected_relation == "eq":
-            assert target_fps == original_fps
+        with should_raise:
+            target_fps = _compute_target_fps(
+                original_fps=original_fps,
+                duration_sec=duration,
+                max_video_tokens=max_tokens,
+                tokens_per_frame=tokens_per_frame,
+            )
+        if isinstance(should_raise, nullcontext):
+            if expected_relation == "lt":
+                assert target_fps <= original_fps
+            elif expected_relation == "eq":
+                assert target_fps == original_fps
