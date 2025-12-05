@@ -13,10 +13,13 @@ import voyageai
 import voyageai.error as error
 from voyageai._base import _BaseClient
 from voyageai.chunking import apply_chunking
-from voyageai.object.multimodal_embeddings import MultimodalInputRequest
 from voyageai.object import (
-    ContextualizedEmbeddingsObject, EmbeddingsObject, RerankingObject, MultimodalEmbeddingsObject
+    ContextualizedEmbeddingsObject,
+    EmbeddingsObject,
+    MultimodalEmbeddingsObject,
+    RerankingObject,
 )
+from voyageai.object.multimodal_embeddings import MultimodalInputRequest
 from voyageai.video_utils import Video
 
 
@@ -147,7 +150,6 @@ class AsyncClient(_BaseClient):
         output_dimension: Optional[int] = None,
         call_id: Optional[str] = None,
     ) -> MultimodalEmbeddingsObject:
-
         response = None
         async for attempt in self._make_retry_controller():
             with attempt:

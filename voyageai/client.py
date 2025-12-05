@@ -19,8 +19,8 @@ from voyageai.object import (
     MultimodalEmbeddingsObject,
     RerankingObject,
 )
-from voyageai.video_utils import Video
 from voyageai.object.multimodal_embeddings import MultimodalInputRequest
+from voyageai.video_utils import Video
 
 
 class Client(_BaseClient):
@@ -157,7 +157,6 @@ class Client(_BaseClient):
         output_dtype: Optional[str] = None,
         output_dimension: Optional[int] = None,
     ) -> MultimodalEmbeddingsObject:
-
         response = None
         for attempt in self._make_retry_controller():
             with attempt:

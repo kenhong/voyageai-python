@@ -12,11 +12,16 @@ from huggingface_hub import hf_hub_download
 import voyageai
 from voyageai.object import EmbeddingsObject, RerankingObject
 from voyageai.object.contextualized_embeddings import ContextualizedEmbeddingsObject
-from voyageai.object.multimodal_embeddings import MultimodalInputRequest, MultimodalInputSegmentText, \
-    MultimodalInputSegmentImageURL, MultimodalInputSegmentImageBase64, MultimodalEmbeddingsObject, \
-    MultimodalInputSegmentVideoURL, MultimodalInputSegmentVideoBase64
+from voyageai.object.multimodal_embeddings import (
+    MultimodalEmbeddingsObject,
+    MultimodalInputRequest,
+    MultimodalInputSegmentImageBase64,
+    MultimodalInputSegmentImageURL,
+    MultimodalInputSegmentText,
+    MultimodalInputSegmentVideoBase64,
+    MultimodalInputSegmentVideoURL,
+)
 from voyageai.util import default_api_key
-from voyageai.object import EmbeddingsObject, RerankingObject
 from voyageai.video_utils import Video
 
 
@@ -177,10 +182,6 @@ class _BaseClient(ABC):
         max_pixels = client_config["multimodal_image_pixels_max"]
         pixel_to_token_ratio = client_config["multimodal_image_to_tokens_ratio"]
 
-        min_video_pixels = client_config["multimodal_video_pixels_min"]
-        max_video_pixels = client_config["multimodal_video_pixels_max"]
-        video_pixel_to_token_ratio = client_config["multimodal_video_to_tokens_ratio"]
-
         request = MultimodalInputRequest.from_user_inputs(
             inputs=inputs,
             model=model,
@@ -199,7 +200,9 @@ class _BaseClient(ABC):
                     )
 
                 elif isinstance(segment, MultimodalInputSegmentVideoURL):
-                    raise voyageai.error.InvalidRequestError("count_usage does not support video URL segments.")
+                    raise voyageai.error.InvalidRequestError(
+                        "count_usage does not support video URL segments."
+                    )
 
                 elif isinstance(segment, MultimodalInputSegmentImageBase64):
                     try:
@@ -226,7 +229,9 @@ class _BaseClient(ABC):
                         video_tokens += video.estimated_num_tokens
 
                     except Exception as e:
-                        raise voyageai.error.InvalidRequestError(f"Unable to process base64 video: {e}")
+                        raise voyageai.error.InvalidRequestError(
+                            f"Unable to process base64 video: {e}"
+                        )
 
                 elif isinstance(segment, MultimodalInputSegmentText):
                     text_segments += segment.text

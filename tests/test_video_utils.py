@@ -1,24 +1,21 @@
-from os import PathLike
-from typing import IO, Dict, Union, Any
-
 import io
+from os import PathLike
 from pathlib import Path
+from typing import IO, Any, Dict, Union
 
 import pytest
-
 from voyageai._base import _get_client_config
 from voyageai.video_utils import (
     Video,
-    optimize_video,
     _compute_target_fps,
     _parse_fps,
+    optimize_video,
 )
 
 try:
     import ffmpeg  # type: ignore[import]
 except ImportError:  # pragma: no cover - handled lazily in functions
     ffmpeg = None  # type: ignore[assignment]
-
 
 
 class TestVideoUtils:
@@ -38,7 +35,9 @@ class TestVideoUtils:
         assert video.optimized is False
         assert video.to_bytes() == video_bytes
 
-    def test_video_from_path_with_optimize_calls_optimize_video(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_video_from_path_with_optimize_calls_optimize_video(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         video_bytes = b"fake-video-bytes-from-path-opt"
         video_path = tmp_path / "fake_video_opt.bin"
         video_path.write_bytes(video_bytes)
@@ -96,7 +95,9 @@ class TestVideoUtils:
         assert video.optimized is False
         assert video.to_bytes() == video_bytes
 
-    def test_video_from_file_with_optimize_calls_optimize_video(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_video_from_file_with_optimize_calls_optimize_video(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         video_bytes = b"fake-video-bytes-from-file-opt"
         buf: IO[bytes] = io.BytesIO(video_bytes)
 
@@ -141,7 +142,6 @@ class TestVideoUtils:
 
         assert out_path.read_bytes() == video_bytes
 
-
     @pytest.mark.integration
     def test_optimize_video_e2e_example_video(
         self,
@@ -172,9 +172,7 @@ class TestVideoUtils:
         video.to_file(output_path)
 
         probe = ffmpeg.probe(str(output_path))  # type: ignore[union-attr]
-        stream = next(
-            s for s in probe["streams"] if s.get("codec_type") == "video"
-        )
+        stream = next(s for s in probe["streams"] if s.get("codec_type") == "video")
         width = int(stream["width"])
         height = int(stream["height"])
         duration = float(stream.get("duration", probe.get("format", {}).get("duration", 0.0)))
@@ -239,5 +237,3 @@ class TestVideoUtils:
             assert target_fps <= original_fps
         elif expected_relation == "eq":
             assert target_fps == original_fps
-
-

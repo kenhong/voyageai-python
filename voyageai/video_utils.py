@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import tempfile
 from os import PathLike
-from typing import IO, Dict, Optional, Tuple, Union, Any
+from typing import IO, Any, Dict, Optional, Tuple, Union
 
 try:
     import ffmpeg  # type: ignore[import]
@@ -75,9 +75,7 @@ class Video:
         # Best-effort attempt to populate usage metadata. If probing fails
         # (e.g. ffmpeg missing or invalid file or client_config not available),
         # we silently fall back to None.
-        num_pixels, num_frames, estimated_tokens = _compute_basic_usage_for_path(
-            path, model=model
-        )
+        num_pixels, num_frames, estimated_tokens = _compute_basic_usage_for_path(path, model=model)
 
         return cls(
             data=data,
@@ -161,7 +159,6 @@ class Video:
         """
         with open(path, "wb") as f:
             f.write(self._data)
-
 
 
 def _load_video_bytes(video: Union[str, PathLike[str], bytes, Video]) -> bytes:
@@ -267,10 +264,7 @@ def _compute_basic_usage_for_path(
     )
 
     num_pixels = pixels_per_frame * frames
-    estimated_tokens = max(
-        1,
-        (pixels_per_frame * frames) // max(video_pixel_to_token_ratio, 1)
-    )
+    estimated_tokens = max(1, (pixels_per_frame * frames) // max(video_pixel_to_token_ratio, 1))
 
     return num_pixels, frames, estimated_tokens
 
@@ -297,9 +291,7 @@ def _get_video_token_config(
     try:
         min_video_pixels = int(client_config["multimodal_video_pixels_min"])
         max_video_pixels = int(client_config["multimodal_video_pixels_max"])
-        video_pixel_to_token_ratio = int(
-            client_config["multimodal_video_to_tokens_ratio"]
-        )
+        video_pixel_to_token_ratio = int(client_config["multimodal_video_to_tokens_ratio"])
     except (KeyError, TypeError, ValueError):
         return None
 
@@ -434,11 +426,7 @@ def optimize_video(
             target_width = width
             target_height = height
 
-        if (
-            downsample_fps
-            and max_video_tokens is not None
-            and video_config is not None
-        ):
+        if downsample_fps and max_video_tokens is not None and video_config is not None:
             # Estimate tokens-per-frame based on the current spatial resolution,
             # using the same pixel-to-token ratio and pixel bounds as the
             # multimodal video client configuration.
@@ -485,8 +473,7 @@ def optimize_video(
                 )
                 num_pixels = pixels_per_frame * frames
                 estimated_tokens = max(
-                    1,
-                    (pixels_per_frame * frames) // max(video_pixel_to_token_ratio, 1)
+                    1, (pixels_per_frame * frames) // max(video_pixel_to_token_ratio, 1)
                 )
             else:
                 # Fallback: we can still expose num_pixels if desired, but we
@@ -607,5 +594,3 @@ def optimize_video(
                 os.unlink(out_path)
         except OSError:
             pass
-
-

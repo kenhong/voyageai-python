@@ -1,7 +1,7 @@
 import base64
-from io import BytesIO
 from enum import Enum
-from typing import List, Optional, Union, Dict, Literal, Annotated, Any
+from io import BytesIO
+from typing import Annotated, Any, Dict, List, Literal, Optional, Union
 
 import PIL.Image
 import PIL.ImageFile
@@ -71,9 +71,7 @@ class MultimodalInputSegmentImageBase64(BaseModel):
 
 
 class MultimodalInputSegmentVideoURL(BaseModel):
-    type: Literal[
-        MultimodalInputSegmentType.VIDEO_URL
-    ] = MultimodalInputSegmentType.VIDEO_URL
+    type: Literal[MultimodalInputSegmentType.VIDEO_URL] = MultimodalInputSegmentType.VIDEO_URL
     video_url: str
 
     class Config:
@@ -81,9 +79,7 @@ class MultimodalInputSegmentVideoURL(BaseModel):
 
 
 class MultimodalInputSegmentVideoBase64(BaseModel):
-    type: Literal[
-        MultimodalInputSegmentType.VIDEO_BASE64
-    ] = MultimodalInputSegmentType.VIDEO_BASE64
+    type: Literal[MultimodalInputSegmentType.VIDEO_BASE64] = MultimodalInputSegmentType.VIDEO_BASE64
     video_base64: str
 
     class Config:
@@ -302,4 +298,3 @@ class MultimodalInputRequest(BaseModel):
         raw_bytes = video.to_bytes()
         vid_base64 = base64.b64encode(raw_bytes).decode("utf-8")
         return f"data:{target_mime_type};base64,{vid_base64}"
-

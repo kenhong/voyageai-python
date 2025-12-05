@@ -1,6 +1,6 @@
 import asyncio
-import math
 import base64
+import math
 from inspect import iscoroutinefunction
 from pathlib import Path
 from typing import List
@@ -9,7 +9,6 @@ import pytest
 import voyageai
 import voyageai.error as error
 from PIL import Image
-
 from voyageai.video_utils import Video
 
 
@@ -127,9 +126,13 @@ sample_input_list_img_04 = [Image.new("L", (10, 10), color=128)]
 
 sample_input_list_img_05 = [Image.new("L", (4000, 4000), color=128)]
 
-sample_input_list_video_01 = [Video.from_path("tests/example_video_01.mp4", optimize=False, model="voyage-multimodal-3.5")]
+sample_input_list_video_01 = [
+    Video.from_path("tests/example_video_01.mp4", optimize=False, model="voyage-multimodal-3.5")
+]
 
-sample_input_list_video_02 = [Video.from_path("tests/example_video_01.mp4", optimize=True, model="voyage-multimodal-3.5")]
+sample_input_list_video_02 = [
+    Video.from_path("tests/example_video_01.mp4", optimize=True, model="voyage-multimodal-3.5")
+]
 
 sample_input_list_mixed_01 = [
     "this is an image of a blue sailboat on a lake.",
@@ -255,28 +258,54 @@ class TestClient:
         assert query_embd.total_tokens == doc_embd.total_tokens
 
     def test_multimodal_client_embed_output_dtype(self, client, multimodal_model):
-        result = embed_with_client(client, inputs=[sample_input_list_text_01, sample_input_list_img_01], model=multimodal_model)
+        result = embed_with_client(
+            client,
+            inputs=[sample_input_list_text_01, sample_input_list_img_01],
+            model=multimodal_model,
+        )
         assert len(result.embeddings) == 2
         assert len(result.embeddings[0]) == 1024
         assert isinstance(result.embeddings[0][0], float)
         assert result.total_tokens > 0
 
-        result = embed_with_client(client, inputs=[sample_input_list_text_01, sample_input_list_img_01], model=multimodal_model, output_dtype="float", output_dimension=1024)
+        result = embed_with_client(
+            client,
+            inputs=[sample_input_list_text_01, sample_input_list_img_01],
+            model=multimodal_model,
+            output_dtype="float",
+            output_dimension=1024,
+        )
         assert len(result.embeddings) == 2
         assert len(result.embeddings[0]) == 1024
         assert isinstance(result.embeddings[0][0], float)
 
-        result = embed_with_client(client, inputs=[sample_input_list_text_01, sample_input_list_img_01], model=multimodal_model)
+        result = embed_with_client(
+            client,
+            inputs=[sample_input_list_text_01, sample_input_list_img_01],
+            model=multimodal_model,
+        )
         assert len(result.embeddings) == 2
         assert len(result.embeddings[0]) == 1024
         assert isinstance(result.embeddings[0][0], float)
 
-        result = embed_with_client(client, inputs=[sample_input_list_text_01, sample_input_list_img_01], model=multimodal_model, output_dtype="int8", output_dimension=2048)
+        result = embed_with_client(
+            client,
+            inputs=[sample_input_list_text_01, sample_input_list_img_01],
+            model=multimodal_model,
+            output_dtype="int8",
+            output_dimension=2048,
+        )
         assert len(result.embeddings) == 2
         assert len(result.embeddings[0]) == 2048
         assert isinstance(result.embeddings[0][0], int)
 
-        result = embed_with_client(client, inputs=[sample_input_list_text_01, sample_input_list_img_01], model=multimodal_model, output_dtype="ubinary", output_dimension=256)
+        result = embed_with_client(
+            client,
+            inputs=[sample_input_list_text_01, sample_input_list_img_01],
+            model=multimodal_model,
+            output_dtype="ubinary",
+            output_dimension=256,
+        )
         assert len(result.embeddings) == 2
         assert len(result.embeddings[0]) == 32
         assert isinstance(result.embeddings[0][0], int)
@@ -390,9 +419,7 @@ class TestClient:
         assert segment["type"] == "video_url"
         assert segment["video_url"] == sample_input_dict_video_url_01["content"][0]["video_url"]
 
-    def test_client_multimodal_embed_list_with_video_object_payload(
-        self, client, monkeypatch
-    ):
+    def test_client_multimodal_embed_list_with_video_object_payload(self, client, monkeypatch):
         video_bytes = b"video-for-list-of-list"
         video = Video(data=video_bytes, model="voyage-multimodal-3-video", optimized=False)
 
@@ -470,7 +497,9 @@ class TestClient:
         decoded_bytes = base64.b64decode(b64_data.encode("utf-8"))
         assert decoded_bytes == video_bytes
 
-    def test_input_formats_yield_identical_result(self, client, multimodal_model, similarity_threshold):
+    def test_input_formats_yield_identical_result(
+        self, client, multimodal_model, similarity_threshold
+    ):
         input_1 = {
             "content": [
                 {
@@ -508,7 +537,10 @@ class TestClient:
             ([sample_input_list_text_01, sample_input_list_text_01], (26, 0, 26, 0)),
             ([sample_input_list_text_01 * 2] * 2, (50, 0, 50, 0)),
             ([sample_input_list_mixed_01, sample_input_list_mixed_01], (26, 320000, 596, 0)),
-            ([sample_input_list_img_04, sample_input_list_img_05, sample_input_list_text_01], (13, 2050000, 3673, 0)),
+            (
+                [sample_input_list_img_04, sample_input_list_img_05, sample_input_list_text_01],
+                (13, 2050000, 3673, 0),
+            ),
             ([], -1),
             ([sample_input_list_text_01, []], -1),
             ([sample_input_dict_url_01], -1),
@@ -531,6 +563,4 @@ class TestClient:
 
         else:
             with pytest.raises(voyageai.error.InvalidRequestError):
-                client.count_usage(
-                    inputs=inputs, model=multimodal_model
-                )
+                client.count_usage(inputs=inputs, model=multimodal_model)
