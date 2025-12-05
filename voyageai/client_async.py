@@ -31,17 +31,10 @@ class AsyncClient(_BaseClient):
         timeout (float): Timeout in seconds.
     """
 
-    def __init__(
-        self,
-        api_key: Optional[str] = None,
-        max_retries: int = 0,
-        timeout: Optional[float] = None,
-    ) -> None:
-        super().__init__(api_key, max_retries, timeout)
-
-        self.retry_controller = AsyncRetrying(
+    def _make_retry_controller(self) -> AsyncRetrying:
+        return AsyncRetrying(
             reraise=True,
-            stop=stop_after_attempt(max_retries),
+            stop=stop_after_attempt(self.max_retries),
             wait=wait_exponential_jitter(initial=1, max=16),
             retry=(
                 retry_if_exception_type(error.RateLimitError)
@@ -69,7 +62,7 @@ class AsyncClient(_BaseClient):
             )
 
         response = None
-        async for attempt in self.retry_controller:
+        async for attempt in self._make_retry_controller():
             with attempt:
                 response = await voyageai.Embedding.acreate(
                     input=texts,
@@ -97,7 +90,7 @@ class AsyncClient(_BaseClient):
         chunk_fn: Optional[Callable[[str], List[str]]] = None,
     ) -> ContextualizedEmbeddingsObject:
         response = None
-        async for attempt in self.retry_controller:
+        async for attempt in self._make_retry_controller():
             with attempt:
                 if chunk_fn:
                     inputs = apply_chunking(inputs, chunk_fn)
@@ -129,7 +122,7 @@ class AsyncClient(_BaseClient):
         truncation: bool = True,
     ) -> RerankingObject:
         response = None
-        async for attempt in self.retry_controller:
+        async for attempt in self._make_retry_controller():
             with attempt:
                 response = await voyageai.Reranking.acreate(
                     query=query,
@@ -152,6 +145,7 @@ class AsyncClient(_BaseClient):
         model: str,
         input_type: Optional[str] = None,
         truncation: bool = True,
+        call_id: Optional[str] = None,
     ) -> MultimodalEmbeddingsObject:
         """
         Generate multimodal embeddings asynchronously for the provided inputs using the specified model.
@@ -164,7 +158,7 @@ class AsyncClient(_BaseClient):
         """
 
         response = None
-        async for attempt in self.retry_controller:
+        async for attempt in self._make_retry_controller():
             with attempt:
                 response = await voyageai.MultimodalEmbedding.acreate(
                     **MultimodalInputRequest.from_user_inputs(
@@ -175,7 +169,6 @@ class AsyncClient(_BaseClient):
                     ).dict(),
                     **self._params,
                 )
-
         if response is None:
             raise error.APIConnectionError("Failed to get response after all retry attempts")
 
