@@ -206,7 +206,7 @@ class TestVideoUtils:
         expected_num_pixels = pixels_per_frame * frames
         expected_tokens = max(
             1,
-            (pixels_per_frame // max(ratio, 1)) * frames,
+            (pixels_per_frame * frames) // max(ratio, 1),
         )
 
         assert video.num_frames == frames
