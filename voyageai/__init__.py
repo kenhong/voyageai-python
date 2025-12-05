@@ -50,9 +50,9 @@ app_info = None
 debug = False
 log = None  # Set to either 'debug' or 'info', controls console logging
 
-requestssession: Optional[
-    Union["requests.Session", Callable[[], "requests.Session"]]
-] = None  # Provide a requests.Session or Session factory.
+requestssession: Optional[Union["requests.Session", Callable[[], "requests.Session"]]] = (
+    None  # Provide a requests.Session or Session factory.
+)
 
 aiosession: ContextVar[Optional["ClientSession"]] = ContextVar(
     "aiohttp-session", default=None
