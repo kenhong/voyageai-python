@@ -269,8 +269,7 @@ def _compute_basic_usage_for_path(
     num_pixels = pixels_per_frame * frames
     estimated_tokens = max(
         1,
-        (pixels_per_frame // max(video_pixel_to_token_ratio, 1))
-        * frames,
+        (pixels_per_frame * frames) // max(video_pixel_to_token_ratio, 1)
     )
 
     return num_pixels, frames, estimated_tokens
@@ -487,8 +486,7 @@ def optimize_video(
                 num_pixels = pixels_per_frame * frames
                 estimated_tokens = max(
                     1,
-                    (pixels_per_frame // max(video_pixel_to_token_ratio, 1))
-                    * frames,
+                    (pixels_per_frame * frames) // max(video_pixel_to_token_ratio, 1)
                 )
             else:
                 # Fallback: we can still expose num_pixels if desired, but we
