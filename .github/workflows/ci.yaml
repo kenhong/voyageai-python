@@ -17,6 +17,7 @@ jobs:
         python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
     env:
       VOYAGE_API_KEY: ${{ secrets.VOYAGE_API_KEY }}
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}  # TODO: remove
       POETRY_HOME: "/opt/poetry"
     steps:
     - name: Checkout repository
